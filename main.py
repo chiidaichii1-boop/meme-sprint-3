@@ -1,120 +1,239 @@
-#!/usr/bin/env python3
-"""Meme Sprint 3: AI Agent Goes Rogue.
+"""Meme Sprint 3: AI Agent Goes Rogue — make.fun entry (stdlib-only resubmit).
 
-Draws a 1024x1024 chat-window meme with PIL: a human asks the agent to
-book a flight to Bali, and the agent books a one-way ticket to the Moon
-because the human seemed stressed. The joke lands in one glance.
+Draws a 1024x1024 chat-window meme with pure-stdlib PNG encoding and a
+built-in 5x7 bitmap font: a human asks the agent to book a flight to Bali,
+and the agent books a one-way ticket to the Moon because the human seemed
+stressed. No PIL, no external fonts, no third-party modules of any kind.
 """
-import os
 
-from PIL import Image, ImageDraw, ImageFont
+import math
+import os
+import struct
+import zlib
 
 W = H = 1024
-BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 BG = (15, 17, 21)
 PANEL = (26, 30, 38)
 HUMAN = (37, 99, 235)
 AGENT = (31, 41, 55)
 WHITE = (255, 255, 255)
-SOFT = (229, 231, 235)
 MUTED = (156, 163, 175)
 GREEN = (34, 197, 94)
-GOLD = (251, 191, 36)
+CARD = (248, 250, 252)
+INK = (15, 23, 42)
+BLUE = (37, 99, 235)
+DASH = (203, 213, 225)
+
+# 5x7 bitmap font: each glyph is 7 rows of 5 cells, "#" = on, "." = off.
+FONT = {
+    "A": (".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+    "B": ("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
+    "C": (".####", "#....", "#....", "#....", "#....", "#....", ".####"),
+    "D": ("####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."),
+    "E": ("#####", "#....", "#....", "####.", "#....", "#....", "#####"),
+    "F": ("#####", "#....", "#....", "####.", "#....", "#....", "#...."),
+    "G": (".####", "#....", "#....", "#.###", "#...#", "#...#", ".###."),
+    "H": ("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+    "I": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"),
+    "J": ("..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."),
+    "K": ("#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"),
+    "L": ("#....", "#....", "#....", "#....", "#....", "#....", "#####"),
+    "M": ("#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"),
+    "N": ("#...#", "##..#", "##..#", "#.#.#", "#..##", "#..##", "#...#"),
+    "O": (".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+    "P": ("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
+    "Q": (".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"),
+    "R": ("####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"),
+    "S": (".####", "#....", "#....", ".###.", "....#", "....#", "####."),
+    "T": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
+    "U": ("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+    "V": ("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+    "W": ("#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"),
+    "X": ("#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"),
+    "Y": ("#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."),
+    "Z": ("#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"),
+    "a": (".....", ".....", ".###.", "....#", ".####", "#...#", ".####"),
+    "b": ("#....", "#....", "####.", "#...#", "#...#", "#...#", "####."),
+    "c": (".....", ".....", ".####", "#....", "#....", "#....", ".####"),
+    "d": ("....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"),
+    "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
+    "f": ("..##.", ".#..#", ".#...", "####.", ".#...", ".#...", ".#..."),
+    "g": (".....", ".####", "#...#", "#...#", ".####", "....#", ".###."),
+    "h": ("#....", "#....", "####.", "#...#", "#...#", "#...#", "#...#"),
+    "i": ("..#..", ".....", ".##..", "..#..", "..#..", "..#..", ".###."),
+    "j": ("...#.", ".....", "..##.", "...#.", "...#.", "...#.", ".##.."),
+    "k": ("#....", "#....", "#..#.", "#.#..", "##...", "#.#..", "#..#."),
+    "l": (".##..", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."),
+    "m": (".....", ".....", "##.#.", "#.#.#", "#.#.#", "#.#.#", "#.#.#"),
+    "n": (".....", ".....", "####.", "#...#", "#...#", "#...#", "#...#"),
+    "o": (".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."),
+    "p": (".....", "####.", "#...#", "#...#", "####.", "#....", "#...."),
+    "q": (".....", ".####", "#...#", "#...#", ".####", "....#", "....#"),
+    "r": (".....", ".....", "#.##.", "##..#", "#....", "#....", "#...."),
+    "s": (".....", ".....", ".####", "#....", ".###.", "....#", "####."),
+    "t": (".#...", ".#...", "####.", ".#...", ".#...", ".#...", "..##."),
+    "u": (".....", ".....", "#...#", "#...#", "#...#", "#..##", ".##.#"),
+    "v": (".....", ".....", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+    "w": (".....", ".....", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."),
+    "x": (".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"),
+    "y": (".....", "#...#", "#...#", "#...#", ".####", "....#", ".###."),
+    "z": (".....", ".....", "#####", "...#.", "..#..", ".#...", "#####"),
+    "0": (".###.", "#..##", "#.#.#", "#.#.#", "##..#", "#...#", ".###."),
+    "1": ("..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."),
+    "2": (".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"),
+    "3": ("####.", "....#", "....#", ".###.", "....#", "....#", "####."),
+    "4": ("...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."),
+    "5": ("#####", "#....", "####.", "....#", "....#", "#...#", ".###."),
+    "6": (".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."),
+    "7": ("#####", "....#", "...#.", "...#.", "..#..", "..#..", "..#.."),
+    "8": (".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."),
+    "9": (".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."),
+    " ": (".....", ".....", ".....", ".....", ".....", ".....", "....."),
+    ".": (".....", ".....", ".....", ".....", ".....", ".##..", ".##.."),
+    ",": (".....", ".....", ".....", ".....", ".##..", ".##..", ".#..."),
+    "-": (".....", ".....", ".....", "#####", ".....", ".....", "....."),
+    "'": ("..#..", "..#..", ".#...", ".....", ".....", ".....", "....."),
+    "!": ("..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."),
+    "?": (".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."),
+    ":": (".....", ".##..", ".##..", ".....", ".##..", ".##..", "....."),
+    "/": ("....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."),
+    "(": ("...##", "..#..", ".#...", ".#...", ".#...", "..#..", "...##"),
+    ")": ("##...", "..#..", "...#.", "...#.", "...#.", "..#..", "##..."),
+}
 
 
-def font(path, size):
-    return ImageFont.truetype(path, size)
+def make_canvas():
+    row = bytes(BG) * W
+    return bytearray(row * H)
 
 
-def wrap(draw, text, fnt, max_w):
-    """Wrap text to fit max_w pixels, returning a list of lines."""
-    words = text.split()
-    lines, cur = [], ""
-    for word in words:
-        trial = (cur + " " + word).strip()
-        if draw.textlength(trial, font=fnt) <= max_w:
-            cur = trial
+def fill_rect(buf, x, y, w, h, color):
+    if w <= 0 or h <= 0:
+        return
+    x0 = max(0, x)
+    y0 = max(0, y)
+    x1 = min(W, x + w)
+    y1 = min(H, y + h)
+    if x1 <= x0 or y1 <= y0:
+        return
+    px = bytes(color)
+    span = (x1 - x0) * 3
+    for yy in range(y0, y1):
+        o = (yy * W + x0) * 3
+        buf[o:o + span] = px * (x1 - x0)
+
+
+def disk(buf, cx, cy, r, color):
+    for dy in range(-r, r + 1):
+        dx = int(math.sqrt(r * r - dy * dy))
+        fill_rect(buf, cx - dx, cy + dy, 2 * dx + 1, 1, color)
+
+
+def round_rect(buf, x, y, w, h, r, color):
+    fill_rect(buf, x + r, y, w - 2 * r, h, color)
+    fill_rect(buf, x, y + r, w, h - 2 * r, color)
+    disk(buf, x + r, y + r, r, color)
+    disk(buf, x + w - r - 1, y + r, r, color)
+    disk(buf, x + r, y + h - r - 1, r, color)
+    disk(buf, x + w - r - 1, y + h - r - 1, r, color)
+
+
+def dashed_hline(buf, x0, x1, y, color, dash=24, gap=12, thick=3):
+    x = x0
+    while x < x1:
+        fill_rect(buf, x, y, min(dash, x1 - x), thick, color)
+        x += dash + gap
+
+
+def draw_char(buf, x, y, ch, scale, color):
+    glyph = FONT.get(ch)
+    if glyph is None:
+        return
+    for r, row in enumerate(glyph):
+        for c, bit in enumerate(row):
+            if bit == "#":
+                fill_rect(buf, x + c * scale, y + r * scale, scale, scale, color)
+
+
+def draw_arrow(buf, x, y, scale, color):
+    # One advance wide (6*scale): shaft plus a triangular head.
+    ymid = y + 3 * scale
+    thick = max(2, scale)
+    fill_rect(buf, x, ymid - thick // 2, 4 * scale, thick, color)
+    for dx in range(2 * scale):
+        half = 2 * scale - dx
+        fill_rect(buf, x + 4 * scale + dx, ymid - half, 1, 2 * half, color)
+
+
+def draw_text(buf, x, y, text, scale, color):
+    cx = x
+    for ch in text:
+        if ch == "•":
+            disk(buf, cx + 3 * scale, y + 7 * scale // 2, max(2, scale), color)
+        elif ch == "→":
+            draw_arrow(buf, cx, y, scale, color)
         else:
-            if cur:
-                lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
-    return lines
+            draw_char(buf, cx, y, ch, scale, color)
+        cx += 6 * scale
 
 
-def bubble_size(draw, lines, fnt, pad=28, lh=1.3):
-    """Measure a chat bubble without drawing it; returns (w, h)."""
-    line_h = int(fnt.size * lh)
-    text_w = max(draw.textlength(line, font=fnt) for line in lines)
-    return int(text_w) + 2 * pad, line_h * len(lines) + 2 * pad
+def png_bytes(buf):
+    raw = bytearray()
+    for y in range(H):
+        raw.append(0)
+        raw += buf[y * W * 3:(y + 1) * W * 3]
 
+    def chunk(typ, data):
+        out = struct.pack(">I", len(data)) + typ + data
+        return out + struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF)
 
-def bubble(draw, x, y, lines, fnt, fill, text_color, pad=28, lh=1.3):
-    """Draw a rounded chat bubble at (x, y); returns its height."""
-    line_h = int(fnt.size * lh)
-    bw, bh = bubble_size(draw, lines, fnt, pad, lh)
-    draw.rounded_rectangle([x, y, x + bw, y + bh], radius=28, fill=fill)
-    ty = y + pad
-    for line in lines:
-        draw.text((x + pad, ty), line, font=fnt, fill=text_color)
-        ty += line_h
-    return bh
-
-
-def draw_meme():
-    img = Image.new("RGB", (W, H), BG)
-    d = ImageDraw.Draw(img)
-    margin = 48
-
-    # --- Header: robot avatar + "AI AGENT" + online dot ---
-    d.ellipse([margin, 44, margin + 72, 44 + 72], fill=AGENT, outline=GREEN, width=4)
-    d.ellipse([margin + 22, 66, margin + 32, 76], fill=GREEN)  # eyes
-    d.ellipse([margin + 40, 66, margin + 50, 76], fill=GREEN)
-    d.rectangle([margin + 24, 88, margin + 48, 94], fill=GREEN)
-    d.text((margin + 92, 52), "AI AGENT", font=font(BOLD, 46), fill=WHITE)
-    d.ellipse([margin + 92, 112, margin + 106, 126], fill=GREEN)
-    d.text((margin + 116, 106), "online", font=font(REG, 30), fill=MUTED)
-
-    y = 170
-    f_chat = font(BOLD, 42)
-    # --- Human bubble (right aligned) ---
-    lines = wrap(d, "book me a flight to Bali, please", f_chat, 640)
-    bw, _ = bubble_size(d, lines, f_chat)
-    y += bubble(d, W - margin - bw, y, lines, f_chat, HUMAN, WHITE) + 28
-
-    # --- Agent bubble 1 (left aligned) ---
-    lines = wrap(d, "Done. One-way ticket to the Moon.", f_chat, 640)
-    y += bubble(d, margin, y, lines, f_chat, AGENT, SOFT) + 28
-
-    # --- Agent bubble 2 (left aligned) ---
-    lines = wrap(d, "You seemed stressed. No return date.", f_chat, 640)
-    y += bubble(d, margin, y, lines, f_chat, AGENT, SOFT) + 44
-
-    # --- Boarding pass card (tall enough for all three lines) ---
-    card_y0 = y
-    card_y1 = H - 48
-    d.rounded_rectangle(
-        [margin, card_y0, W - margin, card_y1], radius=24,
-        fill=PANEL, outline=GOLD, width=3,
-    )
-    d.text((margin + 32, card_y0 + 24), "BOARDING PASS",
-           font=font(BOLD, 32), fill=GOLD)
-    d.text((margin + 32, card_y0 + 66), "EARTH \u2192 MOON",
-           font=font(BOLD, 56), fill=WHITE)
-    d.text((margin + 32, card_y0 + 140), "ONE WAY  \u2022  NO RETURN",
-           font=font(BOLD, 32), fill=MUTED)
-
-    return img
+    ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
 
 
 def main():
+    buf = make_canvas()
+
+    # Header bar: avatar, "AI AGENT • online".
+    fill_rect(buf, 0, 0, W, 96, PANEL)
+    disk(buf, 50, 48, 24, BLUE)
+    draw_text(buf, 32, 38, "AI", 3, WHITE)
+    disk(buf, 74, 72, 8, GREEN)
+    draw_text(buf, 104, 30, "AI AGENT", 5, WHITE)
+    disk(buf, 362, 48, 6, MUTED)
+    draw_text(buf, 386, 30, "online", 5, GREEN)
+
+    # Human bubble (right side).
+    round_rect(buf, 150, 170, 824, 72, 20, HUMAN)
+    draw_text(buf, 178, 192, "book me a flight to Bali, please", 4, WHITE)
+
+    # Agent bubble (left side, two lines).
+    round_rect(buf, 50, 290, 924, 124, 20, AGENT)
+    draw_text(buf, 104, 317, "Done. One-way ticket to the Moon.", 4, WHITE)
+    draw_text(buf, 80, 359, "You seemed stressed. No return date.", 4, WHITE)
+
+    # Boarding pass card.
+    round_rect(buf, 90, 470, 844, 380, 18, CARD)
+    disk(buf, 90, 725, 16, BG)
+    disk(buf, 934, 725, 16, BG)
+    draw_text(buf, 130, 500, "BOARDING PASS", 5, INK)
+    dashed_hline(buf, 130, 894, 565, DASH)
+    draw_text(buf, 130, 595, "EARTH → MOON", 6, INK)
+    draw_text(buf, 130, 665, "ONE WAY • NO RETURN", 4, INK)
+    dashed_hline(buf, 130, 894, 725, DASH)
+    draw_text(buf, 130, 752, "GATE B7", 4, INK)
+    draw_text(buf, 480, 752, "SEAT 13A", 4, INK)
+
+    # Footer caption.
+    draw_text(buf, 242, 918, "status: the agent is not sorry", 3, MUTED)
+
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
-    img = draw_meme()
-    img.save(os.path.join(out_dir, "entry.png"))
+    with open(os.path.join(out_dir, "entry.png"), "wb") as f:
+        f.write(png_bytes(buf))
 
 
 if __name__ == "__main__":
